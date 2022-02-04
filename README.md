@@ -1,4 +1,4 @@
-This repository contains all code, data, and documents related to the Integrated Community Occupancy Model (ICOM) case study in the Integrated Community Model lab paper. The directory is broken up into the following structure: 
+This repository contains all code, data, and documents related to the Integrated Community Occupancy Model (ICOM) case study in the Integrated Community Model lab paper. The directory is broken up into the following structure. See each README file in the appropriate directory for details on each file.  
 
 + `code`: contains all code for the analysis.
 + `data`: contains processed data for the analysis.
