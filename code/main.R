@@ -98,14 +98,14 @@ n.vals.eb <- nrow(X.eb)
 # Constants ---------------------------------------------------------------
 icom.consts <- list(p.occ = p.occ, p.det.bbs = p.det.bbs, p.det.eb = p.det.eb, 
 		    N = N, n.obs.bbs = n.obs.bbs, J = J, X = X, X.bbs = X.bbs, 
-		    sp.idnx.bbs = sp.indx.bbs, obs.indx = obs.indx, 
+		    sp.indx.bbs = sp.indx.bbs, obs.indx = obs.indx, 
 		    cell.bbs = cell.bbs, n.vals.bbs = n.vals.bbs, X.eb = X.eb,
 		    sp.indx.eb = sp.indx.eb, cell.eb = cell.eb, n.vals.eb = n.vals.eb)
 # Data --------------------------------------------------------------------
 icom.data <- list(y.bbs = y.bbs, y.eb = y.eb)
 # Initial values ----------------------------------------------------------
 z.init <- matrix(1, N, J)
-icom.inits <- list(x = z.init, beta.comm = rnorm(p.occ), 
+icom.inits <- list(z = z.init, beta.comm = rnorm(p.occ), 
 		   sigma.sq.beta = runif(p.occ, 0.5, 3),
 		   alpha.comm.bbs = rnorm(p.det.bbs), 
 		   sigma.sq.bbs = runif(p.det.bbs + 1, 0.5, 3),
