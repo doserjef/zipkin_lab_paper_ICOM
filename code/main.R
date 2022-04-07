@@ -2,81 +2,91 @@
 #         interior forest obligates using eBird and BBS data. 
 # Author: Jeffrey W. Doser
 
+
 rm(list = ls())
 library(tidyverse)
 library(coda)
 library(sf)
 library(nimble)
 
-load("data/pa-data-bundle.rda")
-source("code/icom-ne-birds-nimble.R")
+# Read in data and NIMBLE code --------------------------------------------
+load("data/ne-data-bundle.rda")
+source("code/icom-fit-ne-birds-nimble.R")
 
 # Data prep ---------------------------------------------------------------
-# Total number of cells in the study area. 
-J <- nrow(grid.sf)
+# Total number of cells in the study area.
+J <- nrow(grid.ne)
 # Number of cells with eBird data
 J.ebird <- n_distinct(ebird.df$cell)
 # Number of cells with BBS data
 J.bbs <- n_distinct(y.bbs$cell)
 # Number of species
 N <- n_distinct(ebird.df$sp)
-# Cells between the eBird and BBS data don't currently match up. 
+
+# Filter the eBird data to use data from 3 weeks in May when closure is more
+# reasonable. 
+ebird.df <- ebird.df %>%
+  filter(week %in% c(19, 20, 21))
 
 # Get chain number from command line run ----------------------------------
 # This is used to save the chain number in the resulting file name.
-# chain <- as.numeric(commandArgs(trailingOnly = TRUE))
+chain <- as.numeric(commandArgs(trailingOnly = TRUE))
 # For testing
-chain <- 1
+# chain <- 1
 if(length(chain) == 0) base::stop('Need to tell NIMBLE the chain number')
 
-# Some EDA ----------------------------------------------------------------
-grid.sf$elevation <- occ.covs$elev
-grid.sf$forest <- occ.covs$pf
-grid.sf$devel <- occ.covs$devel
+# Only extract the 5x5km cells with eBird or BBS data for model fitting ---
+# Will predict richness at non-sampled cells post-hoc to make things
+# faster with NIMBLE. 
+unique.cells <- sort(unique(c(unique(y.bbs$cell), unique(ebird.df$cell))))
+# Total number of cells with data
+J <- length(unique.cells)
+# New occurrence covariates. 
+occ.covs.small <- occ.covs[unique.cells, ]
+# Adjust the cell number to make sure things match up with only the cells
+# with data with them. 
+for (i in 1:J) {
+  y.bbs$cell[which(y.bbs$cell == unique.cells[i])] <- i
+  ebird.df$cell[which(ebird.df$cell == unique.cells[i])] <- i
+}
 
-# ebird.df %>%
-#   group_by(sp) %>%
-#   summarize(n.obs = sum(y)) %>%
-#   print(n = nrow(.))
-# 
-# y.bbs %>%
-#   group_by(sp) %>%
-#   summarize(n.obs = sum(ifelse(binom > 0, 1, 0))) %>%
-#   print(n = nrow(.))
-
-# There is way more eBird data than BBS data. 
 # Get Data Prepped for NIMBLE ---------------------------------------------
 # Occurrence design matrix
-X <- cbind(c(scale(occ.covs$elev)), 
-	   c(scale(occ.covs$elev)^2), 
-	   c(scale(occ.covs$pf)), 
-           c(scale(occ.covs$devel)))
+X <- cbind(1, 
+	   c(scale(occ.covs.small$elev)),
+	   c(scale(occ.covs.small$elev)^2),
+	   c(scale(occ.covs.small$pf)))
+# Set missing values to their means
+X[which(is.na(X))] <- 0
 # Number of occurrence parameters
 p.occ <- ncol(X)
-# Total number of cells
-J <- nrow(grid.sf)
 # Prep BBS Data------------------------
-bbs.df <- y.bbs
+# Reorder by all species, then cell within species
+bbs.df <- y.bbs %>%
+  arrange(sp, cell)
 # The actual data
 y.bbs <- bbs.df$binom
 # Unique species names
 sp.names <- unique(bbs.df$sp)
-# Total number of species
-N <- length(sp.names)
-# Species index
+# Species index for each data point
 sp.indx.bbs <- as.numeric(factor(bbs.df$sp))
-# Cell index
+# Cell index for each data point. 
 cell.bbs <- bbs.df$cell
 # Observer index
 obs.indx <- as.numeric(factor(bbs.df$obs))
 n.obs.bbs <- n_distinct(obs.indx)
 # Fixed effects detection design matrix
-X.bbs <- cbind(c(scale(bbs.df$julian)), c(scale(bbs.df$julian)^2))
+X.bbs <- cbind(1, 
+	       c(scale(bbs.df$julian)),
+	       c(scale(bbs.df$julian)^2))
 # Number of BBS detection fixed effects
 p.det.bbs <- ncol(X.bbs)
 # Total number of BBS data points
-n.vals.bbs <- nrow(X.bbs)
+n.vals.bbs <- length(y.bbs)
 # Prep eBird Data ---------------------
+# Reorder by all species, then cell within species
+ebird.df <- ebird.df %>%
+  arrange(sp, cell)
 # The actual data
 y.eb <- ebird.df$y
 # Species index
@@ -84,40 +94,70 @@ sp.indx.eb <- as.numeric(factor(ebird.df$sp))
 # Cell index
 cell.eb <- ebird.df$cell
 # Fixed effects detection design matrix
-X.eb <- cbind(c(scale(ebird.df$day)), 
-	      c(scale(ebird.df$day)^2), 
-	      c(scale(ebird.df$time)), 
-	      c(scale(ebird.df$length)), 
-	      c(scale(ebird.df$dist)), 
-	      c(scale(ebird.df$obsv))) 
+X.eb <- cbind(1, 
+	      c(scale(ebird.df$day)),
+	      c(scale(ebird.df$day)^2),
+	      c(scale(ebird.df$time)),
+	      c(scale(ebird.df$length)),
+	      c(scale(ebird.df$dist)),
+	      c(scale(ebird.df$obsv)))
 # Number of eBird detection fixed effects
 p.det.eb <- ncol(X.eb)
 # Total number of eBird data points
-n.vals.eb <- nrow(X.eb)
+n.vals.eb <- length(y.eb)
 
+# Exploratory Data Analysis -----------------------------------------------
+bbs.props <- bbs.df %>%
+  group_by(sp) %>%
+  summarize(mean.val = mean(binom) / 5) %>%
+  print(n = nrow(.))
+
+# Total number of species with raw occurrence < 0.2 in BBS data.
+sum(bbs.props$mean.val < 0.2) / N
+
+# Overall mean raw occurrence for BBS
+bbs.df %>%
+  group_by(sp) %>%
+  summarize(mean.val = mean(binom) / 5) %>%
+  summarize(mean.overall = mean(mean.val))
+
+ebird.props <- ebird.df %>%
+  group_by(sp) %>%
+  summarize(mean.val = mean(y)) %>%
+  print(n = nrow(.))
+
+# Total number of species with raw occurrence < 0.2 in eBird data. 
+sum(ebird.props$mean.val < 0.2) / N
+
+# Overall mean raw occurrence for eBird 
+ebird.df %>%
+  group_by(sp) %>%
+  summarize(mean.val = mean(y)) %>%
+  summarize(mean.overall = mean(mean.val))
 # Constants ---------------------------------------------------------------
-icom.consts <- list(p.occ = p.occ, p.det.bbs = p.det.bbs, p.det.eb = p.det.eb, 
-		    N = N, n.obs.bbs = n.obs.bbs, J = J, X = X, X.bbs = X.bbs, 
-		    sp.indx.bbs = sp.indx.bbs, obs.indx = obs.indx, 
-		    cell.bbs = cell.bbs, n.vals.bbs = n.vals.bbs, X.eb = X.eb,
-		    sp.indx.eb = sp.indx.eb, cell.eb = cell.eb, n.vals.eb = n.vals.eb)
+icom.consts <- list(p.occ = p.occ, p.det.bbs = p.det.bbs, p.det.eb = p.det.eb,
+		    N = N, n.obs.bbs = n.obs.bbs, J = J, 
+		    sp.indx.bbs = sp.indx.bbs, obs.indx = obs.indx,
+		    cell.bbs = cell.bbs, n.vals.bbs = n.vals.bbs,
+		    sp.indx.eb = sp.indx.eb, 
+		    cell.eb = cell.eb, n.vals.eb = n.vals.eb)
 # Data --------------------------------------------------------------------
-icom.data <- list(y.bbs = y.bbs, y.eb = y.eb)
+icom.data <- list(y.bbs = y.bbs, y.eb = y.eb, X.bbs = X.bbs, X.eb = X.eb, X = X)
 # Initial values ----------------------------------------------------------
 z.init <- matrix(1, N, J)
-icom.inits <- list(z = z.init, beta.comm = rnorm(p.occ), 
+icom.inits <- list(z = z.init, beta.comm = rnorm(p.occ),
 		   sigma.sq.beta = runif(p.occ, 0.5, 3),
-		   alpha.comm.bbs = rnorm(p.det.bbs), 
+		   alpha.comm.bbs = rnorm(p.det.bbs),
 		   sigma.sq.bbs = runif(p.det.bbs + 1, 0.5, 3),
-		   alpha.comm.eb = rnorm(p.det.eb), 
+		   alpha.comm.eb = rnorm(p.det.eb),
 		   sigma.sq.eb = runif(p.det.eb, 0.5, 3))
 # Create the model --------------------------------------------------------
 icom.model <- nimbleModel(code = icom.code, name = 'icom', constants = icom.consts,
 		          data = icom.data, inits = icom.inits)
 # Configure MCMC ----------------------------------------------------------
-icom.conf <- configureMCMC(icom.model, monitors = c('beta.comm', 'sigma.sq.beta', 
-						    'alpha.comm.bbs', 'sigma.sq.bbs', 
-						    'alpha.comm.eb', 'sigma.sq.eb', 
+icom.conf <- configureMCMC(icom.model, monitors = c('beta.comm', 'sigma.sq.beta',
+						    'alpha.comm.bbs', 'sigma.sq.bbs',
+						    'alpha.comm.eb', 'sigma.sq.eb',
 						    'beta', 'alpha.bbs', 'alpha.eb'))
 # Create an MCMC function -------------------------------------------------
 icom.mcmc <- buildMCMC(icom.conf)
@@ -125,14 +165,13 @@ icom.mcmc <- buildMCMC(icom.conf)
 icom.c.model <- compileNimble(icom.model)
 icom.c.mcmc <- compileNimble(icom.mcmc, project = icom.model)
 # Number of iterations --------------------------------------------------
-n.iter <- 3000
-n.burn <- 1000
-n.thin <- 2
+n.iter <- 10000
+n.burn <- 5000
+n.thin <- 5 
 n.chain <- 1
 samples <- runMCMC(icom.c.mcmc, niter = n.iter, nburnin = n.burn,
 	           thin = n.thin, nchains = n.chain, samplesAsCodaMCMC = TRUE)
 
 # Save results ------------------------------------------------------------
-save(samples, file = paste("results/pa-icom-", chain, "-chain-", 
+save(samples, file = paste("results/ne-icom-", chain, "-chain-",
 		           Sys.Date(), ".R", sep = ''))
-

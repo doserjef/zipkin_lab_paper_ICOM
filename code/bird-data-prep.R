@@ -21,11 +21,11 @@ library(raster)
 
 # Get BBS Data ------------------------------------------------------------
 # Read in BBS Data from NE states
-# bbs.full.dat <- list.files(path = "data/BBS/ne-states", full.names = TRUE) %>%
-#   lapply(read.csv) %>%
-#   bind_rows()
+bbs.full.dat <- list.files(path = "data/BBS/ne-states", full.names = TRUE) %>%
+  lapply(read.csv) %>%
+  bind_rows()
 # Only use PA for testing purposes. 
-bbs.full.dat <- read.csv("data/BBS/ne-states/Pennsyl.csv")
+# bbs.full.dat <- read.csv("data/BBS/ne-states/Pennsyl.csv")
 # Get associated route data
 route.dat <- read.csv("data/BBS/routes.csv")
 # Get associated weather data
@@ -78,6 +78,11 @@ bbs.2017 <- bbs.2017 %>%
   mutate(orderName = tolower(orderName))
 bbs.2017 <- bbs.2017 %>%
   filter(alpha.code %in% interior.for)
+
+# Number of routes in each state
+bbs.2017 %>%
+  group_by(StateNum) %>%
+  summarize(unique.routes = n_distinct(RouteDataID))
 # Get observation data in long format
 y.bbs.long <- bbs.2017 %>%
   dplyr::select(alpha.code, starts_with('Count'), Route, Longitude, Latitude, 
@@ -101,8 +106,24 @@ occ.raw.bbs <- y.bbs.long %>%
   print(n = nrow(.))
 
 # Get eBird data ----------------------------------------------------------
-# This is for testing right now. Just PA for now. 
-ebird.ne <- read_ebd('data/eBird-test/ebd_US-PA_201705_201707_relSep-2021.txt')
+# States we're using: CT, DE, MA, MD, ME, NH, NJ, NY, PA, RI, VT
+# Definitely a better way to do this....
+ebird.CT <- read_ebd('data/eBird-test/ebd_US-CT_201705_201707_relJan-2022.txt')
+ebird.DE <- read_ebd('data/eBird-test/ebd_US-DE_201705_201707_relJan-2022.txt')
+ebird.ME <- read_ebd('data/eBird-test/ebd_US-ME_201705_201707_relJan-2022.txt')
+ebird.MA <- read_ebd('data/eBird-test/ebd_US-MA_201705_201707_relJan-2022.txt')
+ebird.MD <- read_ebd('data/eBird-test/ebd_US-MD_201705_201707_relJan-2022.txt')
+ebird.NH <- read_ebd('data/eBird-test/ebd_US-NH_201705_201707_relJan-2022.txt')
+ebird.NJ <- read_ebd('data/eBird-test/ebd_US-NJ_201705_201707_relJan-2022.txt')
+ebird.NY <- read_ebd('data/eBird-test/ebd_US-NY_201705_201707_relJan-2022.txt')
+ebird.PA <- read_ebd('data/eBird-test/ebd_US-PA_201705_201707_relSep-2021.txt')
+ebird.RI <- read_ebd('data/eBird-test/ebd_US-RI_201705_201707_relJan-2022.txt')
+ebird.VT <- read_ebd('data/eBird-test/ebd_US-VT_201705_201707_relJan-2022.txt')
+# Bind everything together
+ebird.tmp <- rbind(ebird.CT, ebird.DE, ebird.ME, ebird.MA, ebird.MD, ebird.NH, 
+		   ebird.NJ, ebird.NY, ebird.RI, ebird.VT)
+# Bind everything together. 
+ebird.ne <- full_join(ebird.PA, ebird.tmp)
 # Filter for records in May and June
 ebird.ne <- ebird.ne %>%
   mutate(month = month(observation_date)) %>%
@@ -111,7 +132,7 @@ ebird.ne <- ebird.ne %>%
 # Filter eBird data set to only those that have auxiliary information
 # and not extreme information
 ebird.dat <- ebird.ne %>%
-  filter(month %in% c(5, 6), # May and June closure is assumed
+  filter(month %in% c(5, 6), # May and June "closure" is assumed
 	 protocol_type %in% c('Stationary', 'Traveling'), # stationary or traveling protocols
 	 all_species_reported == TRUE, # complete checklists
 	 number_observers < 10, # restrict number of observers
@@ -130,31 +151,31 @@ ebird.dat <- ebird.dat %>%
 	 week = week(observation_date))
 
 # Grid up study area ------------------------------------------------------
-data(us_states)
-# Full data
-# ne.states <- us_states %>% 
-#   filter(NAME %in% c('Connecticut', 'Delaware', 'Maine', 'Maryland', 
-# 		     'Massachusetts', 'New Hampshire', 'New Jersey', 
-# 		     'New York', 'Pennsylvania', 'Rhode Island', 
-# 		     'Vermont'))
-pa.states <- us_states %>% 
-  filter(NAME %in% c('Pennsylvania'))
-pa.states <- pa.states %>%
+usa <- st_as_sf(maps::map("state", fill = TRUE, plot = FALSE))
+usa <- usa %>%
   st_transform(crs = "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs")
+# Full data
+ne.states <- usa %>% 
+  filter(ID %in% c('connecticut', 'delaware', 'maine', 'maryland', 
+		     'massachusetts', 'new hampshire', 'new jersey', 
+		     'new york', 'pennsylvania', 'rhode island', 
+		     'vermont'))
 # Can change the grid cell size as needed. 
-grid <- pa.states %>%
+grid <- ne.states %>%
   st_make_grid(cellsize = c(5000, 5000)) # in meters
 
 # Connnect eBird to the gridded area --------------------------------------
 ebird.sf <- st_as_sf(ebird.dat, coords = c('longitude', 'latitude'), 
-		     crs = st_crs(us_states))
+		     crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
 # Convert ebird locations to albers equal area
 ebird.sf <- ebird.sf %>%
   st_transform(crs = "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs")
 # Convert grid object to sf data frame
 grid.sf <- grid %>% st_as_sf()
+grid.ne <- grid.sf %>%
+  st_intersection(st_buffer(ne.states, 5000))
 # Get cell each eBird observation falls in
-cell.eBird <- st_contains(grid.sf, ebird.sf)
+cell.eBird <- st_contains(grid.ne, ebird.sf)
 # Get number of eBird observations in each cell
 cell.counts <- sapply(cell.eBird, length)
 # Number of cells
@@ -163,9 +184,7 @@ n.cells <- length(cell.counts)
 cell.by.val <- unlist(sapply(1:n.cells, function(a) {rep(a, cell.counts[a])}))
 # Rows in eBird that are in the grid. 
 cells.eBird.vec <- unlist(cell.eBird)
-grid.sf$counts <- cell.counts
-grid.pa <- grid.sf %>%
-  st_intersection(pa.states)
+grid.ne$counts <- cell.counts
 # Assign each eBird observation to a cell
 ebird.dat$cell <- NA
 ebird.dat$cell[cells.eBird.vec] <- cell.by.val
@@ -176,13 +195,13 @@ ebird.dat <- ebird.dat %>%
 # Connect BBS data to the gridded area ------------------------------------
 # Convert BBS data to sf object.
 bbs.sf <- st_as_sf(y.bbs.long, coords = c('Longitude', 'Latitude'),
-		     crs = st_crs(us_states))
+	           crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
 # Convert to albers equal area
 bbs.sf <- bbs.sf %>%
   st_transform(crs = "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs")
 
 # Get cell each BBS data point falls in
-cell.bbs <- st_contains(grid.sf, bbs.sf)
+cell.bbs <- st_contains(grid.ne, bbs.sf)
 bbs.sf$cell <- NA
 for (i in 1:n.cells) {
   if (length(cell.bbs[[i]]) > 0) {
@@ -204,64 +223,59 @@ bbs.sf.all <- bbs.sf %>%
 # This is currently for all species, as you need to retain all species 
 # to create the preferential sampling part of the model. 
 # Doesn't really show anything. 
-ggplot() + 
-  geom_sf(data = grid.pa, aes(fill = counts)) + 
-  geom_sf(data = pa.states, alpha = 0, col = 'black') + 
-  scale_fill_viridis_c() + 
-  labs(fill = "eBird Counts") +
-  new_scale('fill') +
-  geom_sf(data = bbs.sf.all, pch = 21, aes(fill = all.count), size = 4) + 
-  scale_fill_viridis_c() + 
-  labs(fill = "BBS Counts") + 
-  theme_bw()
+# ggplot() + 
+#   geom_sf(data = grid.ne, aes(fill = counts)) + 
+#   geom_sf(data = state.curr, alpha = 0, col = 'black') + 
+#   scale_fill_gradientn(colors = magma(10), na.value = NA) +
+#   labs(fill = "eBird Counts") +
+#   new_scale('fill') +
+#   geom_sf(data = bbs.sf.all, pch = 21, aes(fill = all.count), size = 4) + 
+#   scale_fill_gradientn(colors = magma(10), na.value = NA) +
+#   labs(fill = "BBS Counts") + 
+#   theme_bw()
+# ggsave(filename = "tmp.pdf")
 
 # Get covariates within each grid cell ------------------------------------
-# Split up grabbing the covariates into multiple data sources. 
-coords.sp <- grid.sf %>% 
+# Split up grabbing the covariates by each state
+coords.sp <- grid.ne %>% 
+  st_centroid() %>%
   st_coordinates() %>%
   as.data.frame()
-J <- n_distinct(coords.sp$L2)
-n.coords <- nrow(coords.sp)
+J <- nrow(coords.sp)
 coordinates(coords.sp) <- ~X + Y
 proj4string(coords.sp) <- '+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs'
 # Loop through all the sites
-vals <- split(1:J, ceiling(seq_along(1:J)/6))
+vals <- split(1:J, ceiling(seq_along(1:J)/30))
 # Average elevation within a cell
-elev.btbw <- rep(0, J)
+elev.vals <- rep(0, J)
 # Proportion of forest cover within the cell
-for.btbw <- rep(0, J)
-# Proportion of developed land in the cell
-devel.btbw <- rep(0, J)
+for.vals <- rep(0, J)
 # Get proportion of forest
 props <- function(a, na.rm = TRUE) {
   my.sum <- sum(!is.na(a))	
   prop.for <- sum(a %in% c(41, 42, 43), na.rm = na.rm) / my.sum
   return(prop.for)
 }
-props.developed <- function(a, na.rm = TRUE) {
-  my.sum <- sum(!is.na(a))	
-  prop.for <- sum(a %in% c(21, 22, 23, 24), na.rm = na.rm) / my.sum
-  return(prop.for)
-}
 ned.dat <- list()
 nlcd.dat <- list()
-# Takes a day or so to run this. 
+# Takes a day or so
 # for (i in 1:length(vals)) {
 #   print(paste("Currently on iteration ", i, " out of ", length(vals), sep = ''))
-#   indx <- which(coords.sp$L2 %in% vals[[i]])
-#   ned.dat[[i]] <- get_ned(template = coords.sp[indx, ], label = paste('birds', i))
-#   nlcd.dat[[i]] <- get_nlcd(template = coords.sp[indx, ], label = paste('birds', i), year = 2016)
-#   elev.btbw[vals[[i]]] <- raster::extract(ned.dat[[i]], grid.sf[vals[[i]], ], fun = mean)
-#   for.btbw[vals[[i]]] <- raster::extract(nlcd.dat[[i]], grid.sf[vals[[i]], ], fun = props)
-#   devel.btbw[vals[[i]]] <- raster::extract(nlcd.dat[[i]], grid.sf[vals[[i]], ], fun = props.developed)
+#   ned.dat[[i]] <- get_ned(template = coords.sp[vals[[i]], ], label = paste('birds', i))
+#   nlcd.dat[[i]] <- get_nlcd(template = coords.sp[vals[[i]], ], label = paste('birds', i), year = 2016)
+#   # Slightly faster. 
+#   elev.vals[vals[[i]]] <- raster::extract(ned.dat[[i]], coords.sp[vals[[i]], ])
+#   for.vals[vals[[i]]] <- raster::extract(nlcd.dat[[i]], coords.sp[vals[[i]], ], buffer = 2500, fun = props)
+#   # elev.vals[vals[[i]]] <- raster::extract(ned.dat[[i]], grid.ne[vals[[i]], ], fun = mean)
+#   # for.vals[vals[[i]]] <- raster::extract(nlcd.dat[[i]], grid.ne[vals[[i]], ], fun = props)
 # }
-# 
-# # Save covariates so you don't have to rerun all the time.
-# #save(elev.btbw, for.btbw, devel.btbw, file = "data/spatial-covariates.rda")
+
+# Save covariates so you don't have to rerun all the time.
+# save(elev.vals, for.vals, file = "data/spatial-covariates.rda")
 
 # Load in the spatial covariates
 load("data/spatial-covariates.rda")
-# This brings in elev.btbw, for.btbw, and devel.btbw
+# This brings in elev.vals, for.vals, and devel.btbw
 # 
 # # Get BBS data in analysis format -----------------------------------------
 y.bbs <- bbs.sf %>% 
@@ -289,7 +303,7 @@ ebird.dat <- ebird.dat %>%
 n.combos <- n_distinct(ebird.dat$weekCell)
 week.cell.combos <- unique(ebird.dat$weekCell)
 curr.indx <- vector(mode = 'list', length = n.combos)
-# Takes a minute or so
+# Takes a few minutes
 for (i in 1:n.combos) {
   tmp <- ebird.dat %>%
     filter(weekCell == week.cell.combos[i])
@@ -314,6 +328,7 @@ checklist.by.cell <- ebird.filt.dat %>%
 
 checklist.by.cell <- checklist.by.cell %>%
   slice(rep(row_number(), N))
+
 # Total number of data set rows (species x rep/site combos)
 n.ebird <- nrow(checklist.by.cell)
 
@@ -327,7 +342,7 @@ sp.names <- aou.info %>%
 
 # Create data frame to hold data and auxiliary information
 ebird.df <- checklist.by.cell
-ebird.df$sp <- rep(sp, times = sum(checklist.data$n.lists))
+ebird.df$sp <- rep(sp, each = sum(checklist.data$n.lists))
 ebird.df$day <- NA
 ebird.df$time <- NA
 ebird.df$length <- NA
@@ -336,30 +351,32 @@ ebird.df$obsv <- NA
 ebird.df$week <- NA
 ebird.df$y <- NA
 
-# Get all eBird data for analysis. This takes a couple of minutes to run. 
+# ebird data are ordered by species, then cell within species
+# Number of lists
+n.lists <- sum(checklist.data$n.lists)
+
+# Get all eBird data for analysis. This takes a few minutes to run. 
 for (i in 1:(n.ebird/N)) {
   if(i %% 1000 == 0) print(i)
   tmp <- ebird.filt.dat %>%
     filter(cell == checklist.by.cell$cell[i],
 	   checklist_id == checklist.by.cell$listID[i])
-  low <- (i - 1) * N + 1
-  high <- i * N
-  ebird.df$day[low:high] <- max(tmp$julian)
-  ebird.df$time[low:high] <- max(tmp$time.started)
-  ebird.df$week[low:high] <- max(tmp$week)
-  ebird.df$length[low:high] <- max(tmp$duration_minutes)
-  ebird.df$dist[low:high] <- max(tmp$effort_distance_km)
-  ebird.df$obsv[low:high] <- max(tmp$number_observers)
+  indx <- seq(i, n.ebird, by = n.lists)
+  ebird.df$day[indx] <- max(tmp$julian)
+  ebird.df$time[indx] <- max(tmp$time.started)
+  ebird.df$week[indx] <- max(tmp$week)
+  ebird.df$length[indx] <- max(tmp$duration_minutes)
+  ebird.df$dist[indx] <- max(tmp$effort_distance_km)
+  ebird.df$obsv[indx] <- max(tmp$number_observers)
   tmp.2 <- tmp %>% filter(str_to_upper(common_name) %in% str_to_upper(sp.names))
   curr.indices <- which(str_to_upper(sp.names) %in% str_to_upper(tmp.2$common_name))
   curr.vals <- ifelse(1:N %in% curr.indices, 1, 0)
-  ebird.df$y[low:high] <- curr.vals
+  ebird.df$y[indx] <- curr.vals
 }
 
-
 # Save results ------------------------------------------------------------
-occ.covs <- data.frame(elev = elev.btbw, 
-		       pf = for.btbw, 
-		       devel = devel.btbw)
-save(y.bbs, ebird.df, occ.covs, grid.sf, file = "data/pa-data-bundle.rda")
+occ.covs <- data.frame(elev = elev.vals, 
+		       pf = for.vals)
+# Pull out bbs.sf so you have the locations of the routes. 
+save(y.bbs, ebird.df, occ.covs, grid.ne, bbs.sf, file = "data/ne-data-bundle.rda")
 
