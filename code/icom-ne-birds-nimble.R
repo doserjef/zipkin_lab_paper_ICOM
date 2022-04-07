@@ -53,10 +53,10 @@ icom.code <- nimbleCode ({
 
   # BBS Likelihood --------------------
   for (i in 1:n.vals.bbs) {
-    logit(p.bbs[i]) <- inprod(alpha.bbs[sp.indx.bbs[i], 1:p.det.bbs], X.bbs[i, 1:p.det.bbs]) + 
-	               alpha.obs.bbs[sp.indx.bbs[i], obs.indx[i]]
+    logit(p.bbs[i]) <- inprod(alpha.bbs[sp.indx.bbs[i], 1:p.det.bbs], X.bbs[i, 1:p.det.bbs]) +
+                              alpha.obs.bbs[sp.indx.bbs[i], obs.indx[i]]
     # 5 sections of each route
-    y.bbs[i] ~ dbinom(5, p.bbs[i] * z[sp.indx.bbs[i], cell.bbs[i]])
+    y.bbs[i] ~ dbinom(p.bbs[i] * z[sp.indx.bbs[i], cell.bbs[i]], 5)
   } # i
 
   # eBird Likelihood ------------------
@@ -65,6 +65,9 @@ icom.code <- nimbleCode ({
     y.eb[i] ~ dbern(p.eb[i] * z[sp.indx.eb[i], cell.eb[i]])
   } # i
 
-  # Probably eventually add in stuff for Bayesian p-values as well...
+  # Richness as a derived quantity ----------------------------------------
+  for (j in 1:J) {
+    z.sum[j] <- sum(z[1:N, j])
+  } # j
 
 })
