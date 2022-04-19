@@ -11,7 +11,7 @@ library(nimble)
 
 # Read in data and NIMBLE code --------------------------------------------
 load("data/ne-data-bundle.rda")
-source("code/icom-fit-ne-birds-nimble.R")
+source("code/icom-ne-birds-nimble.R")
 
 # Data prep ---------------------------------------------------------------
 # Total number of cells in the study area.
@@ -165,9 +165,9 @@ icom.mcmc <- buildMCMC(icom.conf)
 icom.c.model <- compileNimble(icom.model)
 icom.c.mcmc <- compileNimble(icom.mcmc, project = icom.model)
 # Number of iterations --------------------------------------------------
-n.iter <- 10000
-n.burn <- 5000
-n.thin <- 5 
+n.iter <- 70000
+n.burn <- 40000
+n.thin <- 15 
 n.chain <- 1
 samples <- runMCMC(icom.c.mcmc, niter = n.iter, nburnin = n.burn,
 	           thin = n.thin, nchains = n.chain, samplesAsCodaMCMC = TRUE)

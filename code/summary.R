@@ -1,5 +1,6 @@
 # summary.R: this file summarizes results from the ICOM fit to a community
 #            of interior forest obligate birds using eBird and BBS data. 
+# Author: Jeffrey W. Doser	
 rm(list = ls())
 library(coda)
 library(nimble)
@@ -18,11 +19,11 @@ logit.inv <- function(z, a = 0, b = 1) {b-(b-a)/(1+exp(z))}
 
 # Load data and results ---------------------------------------------------
 load("data/ne-data-bundle.rda")
-load("results/ne-icom-1-chain-2022-04-06.R")
+load("results/ne-icom-1-chain-2022-04-13.R")
 samples.1 <- samples
-load("results/ne-icom-2-chain-2022-04-06.R")
+load("results/ne-icom-2-chain-2022-04-13.R")
 samples.2 <- samples
-load("results/ne-icom-3-chain-2022-04-06.R")
+load("results/ne-icom-3-chain-2022-04-13.R")
 samples.3 <- samples
 
 samples.list <- mcmc.list(samples.1, samples.2, samples.3)
@@ -96,9 +97,14 @@ grid.ne$ci.width <- rich.high - rich.low
 grid.ne$elev <- occ.covs$elev
 grid.ne$forest <- occ.covs$pf
 
+# Filter the eBird data to only use data from 3 weeks in May to minimize
+# violations of the closure assumption. 
+ebird.df <- ebird.df %>%
+  filter(week %in% c(19, 20, 21))
+
 # Number of eBird checklists in each cell
 grid.ne$eBirdCheck <- 0
-# Maximum number of checklists in a cell would be 9.
+# Number of checklists in a cell can be 0, 1, 2, or 3
 tmp.eb <- ebird.df %>%
   group_by(cell) %>%
   summarize(n.check = n_distinct(listID))
@@ -107,7 +113,7 @@ for (i in 1:nrow(grid.ne)) {
     grid.ne$eBirdCheck[i] <- tmp.eb$n.check[which(tmp.eb$cell == i)]
   }
 }
-grid.ne$eBirdCheck <- as.integer(grid.ne$eBirdCheck)
+grid.ne$eBirdCheck <- factor(grid.ne$eBirdCheck, levels = 0:3)
 
 # Get map of US -----------------------------------------------------------
 usa <- st_as_sf(maps::map("state", fill = TRUE, plot = FALSE))
@@ -125,13 +131,14 @@ ne.states <- usa %>%
 bbs.locs <- bbs.sf %>%
   filter(sp == 'HAWO')
 grid.plot <- st_intersection(grid.ne, st_make_valid(ne.states))
+grid.plot$eBirdCheck <- factor(grid.plot$eBirdCheck, levels = 0:3)
 counts.plot <- ggplot() + 
   geom_sf(data = grid.plot, aes(fill = eBirdCheck, col = eBirdCheck)) + 
   geom_sf(data = ne.states, col = 'gray', fill = NA) + 
-  scale_fill_gradientn(colors = viridis(10), na.value = NA) +
-  scale_color_gradientn(colors = viridis(10), na.value = NA) +
+  scale_fill_viridis_d() +
+  scale_color_viridis_d() + 
   guides(col = "none") + 
-  geom_sf(data = bbs.locs, pch = 21, fill = 'white', size = 2.5, col = 'black') +
+  geom_sf(data = bbs.locs, pch = 21, fill = 'white', size = 2, col = 'black') +
   theme_bw(base_size = 18) +
   labs(x = "Longitude", y = "Latitude", fill = "# eBird Lists") +
   theme(legend.position = c(0.83, 0.19), 
